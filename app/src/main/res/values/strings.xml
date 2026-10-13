@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Chrono Remote</string>
+    <string name="access_desc">Permite que el teléfono use Atrás, Inicio, las flechas y escriba en la TV. Chrono Remote no guarda ni envía lo que hay en pantalla.</string>
+</resources>
