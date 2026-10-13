@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Versión liviana: sin accesibilidad, para que Play Protect no la bloquee. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <service android:name=".TvAccess" tools:node="remove" />
+    </application>
+</manifest>

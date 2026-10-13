@@ -19,6 +19,13 @@ android {
 
     buildFeatures { resValues true }
 
+    // "completa": con accesibilidad (Atrás, flechas, escribir) · "liviana": sin permisos sensibles, Play Protect no la bloquea
+    flavorDimensions "version"
+    productFlavors {
+        completa { dimension "version" }
+        liviana { dimension "version"; versionNameSuffix "-liviana" }
+    }
+
 
     signingConfigs {
         // Llave fija para que cada nueva versión se instale encima de la anterior

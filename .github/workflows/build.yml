@@ -32,7 +32,9 @@ jobs:
         run: gradle assembleRelease --no-daemon
 
       - name: Preparar APK
-        run: cp app/build/outputs/apk/release/*.apk ChronoRemote.apk
+        run: |
+          cp app/build/outputs/apk/completa/release/*.apk ChronoRemote.apk
+          cp app/build/outputs/apk/liviana/release/*.apk ChronoRemote-liviana.apk
 
       - name: Publicar
         uses: softprops/action-gh-release@v2
@@ -40,7 +42,10 @@ jobs:
           tag_name: v${{ env.VERSION_NAME }}
           name: Chrono Remote ${{ env.VERSION_NAME }}
           make_latest: true
-          files: ChronoRemote.apk
+          files: |
+            ChronoRemote-liviana.apk
+            ChronoRemote.apk
           body: |
             Versión ${{ env.VERSION_NAME }}. ${{ github.event.head_commit.message }}
-            ChronoRemote.apk: la misma app para la TV (Google TV / Android TV) y para los teléfonos.
+            ChronoRemote-liviana.apk: sin permisos sensibles; Play Protect no la bloquea. Sirve para la TV y los teléfonos.
+            ChronoRemote.apk: completa (Atrás, flechas y escribir en cualquier app de la TV, usa accesibilidad). Puede que Play Protect la bloquee.

@@ -29,7 +29,15 @@ final class Updater {
 
     interface Progress { void on(String msg, boolean done); }
 
-    static final String APK = "ChronoRemote.apk";
+    static final String APK = "ChronoRemote.apk", APK_LITE = "ChronoRemote-liviana.apk";
+
+    /** Versión liviana: no trae el servicio de accesibilidad (así Play Protect deja instalarla). */
+    static boolean lite(Context c) {
+        try { c.getPackageManager().getServiceInfo(new android.content.ComponentName(c, TvAccess.class), 0); return false; }
+        catch (Exception e) { return true; }
+    }
+
+    static String apkName(Context c) { return lite(c) ? APK_LITE : APK; }
 
     private Updater() { }
 
@@ -75,7 +83,7 @@ final class Updater {
                 JSONArray as = o.optJSONArray("assets");
                 for (int i = 0; as != null && i < as.length(); i++) {
                     JSONObject a = as.getJSONObject(i);
-                    if (!APK.equals(a.optString("name"))) continue;
+                    if (!apkName(c).equals(a.optString("name"))) continue;
                     String tag = o.optString("tag_name");
                     if (best == null || newer(tag, best[0])) best = new String[]{tag, a.optString("browser_download_url")};
                 }

@@ -154,7 +154,7 @@ public class TvService extends Service implements TvServer.Handler {
     /** Lo que la TV puede hacer (para que el teléfono muestre o esconda botones y avise qué falta). */
     JSONObject state() {
         return msg("tv", "name", Build.MANUFACTURER + " " + Build.MODEL, "overlay", Settings.canDrawOverlays(this),
-                "access", TvAccess.instance != null, "ver", Updater.installed(this));
+                "access", TvAccess.instance != null, "lite", Updater.lite(this), "ver", Updater.installed(this));
     }
 
     void stateChanged() { broadcast(state()); }
@@ -321,7 +321,9 @@ public class TvService extends Service implements TvServer.Handler {
         if (TvActivity.visible && TvActivity.instance != null && TvActivity.instance.key(k)) return;
         if (ViewerActivity.instance != null && ViewerActivity.instance.key(k)) return;
         if (TvAccess.instance == null || !TvAccess.instance.nav(k))
-            p.send(msg("toast", "msg", TvAccess.instance == null
+            p.send(msg("toast", "msg", Updater.lite(this)
+                    ? "En la TV está la versión liviana: Atrás y las flechas solo funcionan en Chrono Remote y en lo que mandes desde aquí"
+                    : TvAccess.instance == null
                     ? "Para usar Atrás y las flechas dentro de otras apps, activa Chrono Remote en Accesibilidad de la TV (menú ⋯ → Preparar la TV)"
                     : "Esa app no deja moverse con las flechas desde el teléfono"));
     }

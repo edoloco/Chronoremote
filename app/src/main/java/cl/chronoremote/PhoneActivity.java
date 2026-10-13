@@ -693,7 +693,7 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         switch (m.optString("t")) {
             case "tv":
                 status.setText("Conectado a " + m.optString("name"));
-                hint.setVisibility(m.optBoolean("access") ? View.GONE : View.VISIBLE);
+                hint.setVisibility(m.optBoolean("access") || m.optBoolean("lite") ? View.GONE : View.VISIBLE);
                 break;
             case "appsList":
                 apps = m.optJSONArray("list") != null ? m.optJSONArray("list") : new JSONArray();

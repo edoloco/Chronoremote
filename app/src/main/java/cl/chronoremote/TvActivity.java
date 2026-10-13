@@ -158,7 +158,7 @@ public class TvActivity extends Activity {
             String keep = f != null && f.getTag() instanceof String ? (String) f.getTag() : null;
             content.removeAllViews();
             setupCard = null;
-            if (!TvService.canStartFromBackground(this) || TvAccess.instance == null) content.addView(setup());
+            if (!android.provider.Settings.canDrawOverlays(this) || (!Updater.lite(this) && TvAccess.instance == null)) content.addView(setup());
             List<ResolveInfo> all = TvService.tvApps(this);
             List<String> pins = TvService.pinList(this);
             List<ResolveInfo> pinned = new ArrayList<>();
@@ -276,9 +276,9 @@ public class TvActivity extends Activity {
         btns.addView(button((ov ? "✓ " : "1. ") + "Mostrar sobre otras apps", () -> {
             if (!openSettings(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + getPackageName()))))
                 if (!openSettings(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)))
-                    notice("Esta TV no tiene ese ajuste: usa el paso 2");
+                    notice("No pude abrir ese ajuste en esta TV");
         }));
-        btns.addView(button((ac ? "✓ " : "2. ") + "Accesibilidad → Chrono Remote", () -> {
+        if (!Updater.lite(this)) btns.addView(button((ac ? "✓ " : "2. ") + "Accesibilidad → Chrono Remote", () -> {
             if (!openSettings(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))) notice("No pude abrir Accesibilidad");
         }));
         setupCard.addView(btns);
