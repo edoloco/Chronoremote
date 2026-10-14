@@ -74,10 +74,32 @@ public class TvService extends Service implements TvServer.Handler {
             server = new TvServer(this, this);
             server.start();
         }
+        if (screenOn == null) {
+            // al prender la TV (salir del reposo), Chrono Remote queda a la vista
+            screenOn = new android.content.BroadcastReceiver() {
+                @Override public void onReceive(Context c, Intent i) { openOnPower(c); }
+            };
+            registerReceiver(screenOn, new android.content.IntentFilter(Intent.ACTION_SCREEN_ON));
+        }
+        if (i != null && i.getBooleanExtra("boot", false)) openOnPower(this);
         return START_STICKY;
     }
 
+    private android.content.BroadcastReceiver screenOn;
+
+    static boolean autoStart(Context c) { return c.getSharedPreferences("tv", MODE_PRIVATE).getBoolean("autostart", true); }
+
+    /** Se abre la pantalla de Chrono Remote unos segundos después de prender la TV (cuando el inicio de Google ya cargó). */
+    static void openOnPower(Context c) {
+        if (!autoStart(c)) return;
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (!TvActivity.visible)
+                startUi(c, new Intent(c, TvActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
+        }, 3500);
+    }
+
     @Override public void onDestroy() {
+        try { if (screenOn != null) unregisterReceiver(screenOn); } catch (Exception ignored) { }
         if (server != null) server.stop();
         server = null;
         if (instance == this) instance = null;
@@ -146,6 +168,18 @@ public class TvService extends Service implements TvServer.Handler {
             case "open": open(m); break;
             case "view": ViewerActivity.command(m); break;
             case "update": Updater.update(this, p); break;
+            case "channels": worker.execute(() -> p.send(Channels.message(this))); break;
+            case "tune": Channels.tune(this, m.optLong("id")); break;
+            case "chan":
+                worker.execute(() -> { if (!Channels.step(this, m.optInt("d"))) p.send(msg("toast", "msg", Channels.allowed(this)
+                        ? "La TV no tiene canales guardados (búscalos en la app de TV de la TV)"
+                        : "Permite \"Canales\" en la TV: tarjeta Prepara la TV")); });
+                break;
+            case "input": Channels.input(this, m.optString("id")); break;
+            case "autostart":
+                getSharedPreferences("tv", MODE_PRIVATE).edit().putBoolean("autostart", m.optBoolean("on")).apply();
+                broadcast(state());
+                break;
             case "setup": startUi(this, new Intent(this, TvActivity.class).putExtra("setup", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); break;
             default: break;
         }
@@ -154,7 +188,7 @@ public class TvService extends Service implements TvServer.Handler {
     /** Lo que la TV puede hacer (para que el teléfono muestre o esconda botones y avise qué falta). */
     JSONObject state() {
         return msg("tv", "name", Build.MANUFACTURER + " " + Build.MODEL, "overlay", Settings.canDrawOverlays(this),
-                "access", TvAccess.instance != null, "lite", Updater.lite(this), "ver", Updater.installed(this));
+                "access", TvAccess.instance != null, "lite", Updater.lite(this), "auto", autoStart(this), "ver", Updater.installed(this));
     }
 
     void stateChanged() { broadcast(state()); }

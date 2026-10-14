@@ -49,8 +49,8 @@ public class PhoneActivity extends Activity implements Remote.Listener {
     private Remote remote;
     private TextView status, nowTitle;
     private View dot, hint, nowBar;
-    private final View[] pages = new View[3];
-    private final LinearLayout[] tabs = new LinearLayout[3];
+    private final View[] pages = new View[4];
+    private final LinearLayout[] tabs = new LinearLayout[4];
     private int page;
     private LinearLayout appsBox;
     private SeekBar volBar, nowSeek;
@@ -126,7 +126,8 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         FrameLayout body = new FrameLayout(this);
         pages[0] = controlPage();
         pages[1] = appsPage();
-        pages[2] = sendPage();
+        pages[2] = channelsPage();
+        pages[3] = sendPage();
         for (View p : pages) body.addView(p, new FrameLayout.LayoutParams(-1, -1));
         col.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
 
@@ -141,9 +142,9 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         bar.setGravity(Gravity.CENTER);
         bar.setBackground(U.card(this, 26));
         bar.setPadding(dp(6), dp(6), dp(6), dp(6));
-        int[] icons = {Glyph.REMOTE, Glyph.APPS, Glyph.SEND};
-        String[] names = {"Control", "Apps", "Enviar"};
-        for (int i = 0; i < 3; i++) {
+        int[] icons = {Glyph.REMOTE, Glyph.APPS, Glyph.TV, Glyph.SEND};
+        String[] names = {"Control", "Apps", "Canales", "Enviar"};
+        for (int i = 0; i < 4; i++) {
             final int k = i;
             LinearLayout t = new LinearLayout(this);
             t.setOrientation(LinearLayout.VERTICAL);
@@ -165,11 +166,12 @@ public class PhoneActivity extends Activity implements Remote.Listener {
 
     private void showPage(int k) {
         page = k;
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             pages[i].setVisibility(i == k ? View.VISIBLE : View.GONE);
             tabs[i].setBackground(i == k ? U.round(0x40FFFFFF, dp(20)) : null);
         }
         if (k == 1 && remote.connected()) remote.send("apps", "sig", appsSig);
+        if (k == 2 && remote.connected()) remote.send("channels");
     }
 
     private ScrollView scroll(LinearLayout content) {
@@ -284,6 +286,14 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         }
         c.addView(media, new LinearLayout.LayoutParams(-1, -2));
 
+        // canales
+        LinearLayout chr = row();
+        chr.setPadding(0, dp(4), 0, dp(4));
+        addSpaced(chr, pill("Canal −", () -> remote.send("chan", "d", -1)));
+        addSpaced(chr, pill("Canales", () -> showPage(2)));
+        addSpaced(chr, pill("Canal +", () -> remote.send("chan", "d", 1)));
+        c.addView(chr, new LinearLayout.LayoutParams(-1, -2));
+
         // escribir en la TV
         LinearLayout tx = new LinearLayout(this);
         tx.setGravity(Gravity.CENTER_VERTICAL);
@@ -301,6 +311,129 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         tl.topMargin = dp(10);
         c.addView(tx, tl);
         return scroll(c);
+    }
+
+    private View pill(String label, Runnable r) {
+        TextView t = U.text(this, label, 15, U.FG, true);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(8), dp(12), dp(8), dp(12));
+        t.setBackground(U.card(this, 22));
+        t.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); r.run(); });
+        LinearLayout box = new LinearLayout(this);
+        box.setPadding(dp(4), 0, dp(4), 0);
+        box.addView(t, new LinearLayout.LayoutParams(-1, -2));
+        return box;
+    }
+
+    // ---------------- Canales ----------------
+
+    private LinearLayout chBox;
+    private TextView chNow;
+    private JSONObject chData;
+
+    private View channelsPage() {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(dp(14), dp(4), dp(14), dp(16));
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setBackground(U.card(this, 24));
+        top.setPadding(dp(6), dp(6), dp(6), dp(6));
+        Glyph down = new Glyph(this, Glyph.PREV, U.FG);
+        down.setOnClickListener(v -> remote.send("chan", "d", -1));
+        top.addView(down, new LinearLayout.LayoutParams(dp(56), dp(56)));
+        chNow = U.text(this, "Canal", 16, U.FG, true);
+        chNow.setGravity(Gravity.CENTER);
+        chNow.setSingleLine(true);
+        chNow.setEllipsize(TextUtils.TruncateAt.END);
+        top.addView(chNow, new LinearLayout.LayoutParams(0, -2, 1));
+        Glyph up = new Glyph(this, Glyph.NEXT, U.FG);
+        up.setOnClickListener(v -> remote.send("chan", "d", 1));
+        top.addView(up, new LinearLayout.LayoutParams(dp(56), dp(56)));
+        c.addView(top, new LinearLayout.LayoutParams(-1, -2));
+        chBox = new LinearLayout(this);
+        chBox.setOrientation(LinearLayout.VERTICAL);
+        c.addView(chBox, new LinearLayout.LayoutParams(-1, -2));
+        renderChannels();
+        return scroll(c);
+    }
+
+    private void renderChannels() {
+        if (chBox == null) return;
+        chBox.removeAllViews();
+        JSONObject d = chData;
+        if (d == null) { chBox.addView(empty(remote.connected() ? "Cargando los canales…" : "Conéctate a la TV")); return; }
+        JSONArray ins = d.optJSONArray("inputs");
+        if (ins != null && ins.length() > 0) {
+            chBox.addView(section("Entradas"));
+            android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(this);
+            hs.setHorizontalScrollBarEnabled(false);
+            LinearLayout r = new LinearLayout(this);
+            for (int i = 0; i < ins.length(); i++) {
+                JSONObject o = ins.optJSONObject(i);
+                TextView t = U.text(this, o.optString("name"), 14, U.FG, true);
+                t.setPadding(dp(16), dp(10), dp(16), dp(10));
+                t.setBackground(U.card(this, 20));
+                t.setOnClickListener(v -> remote.send("input", "id", o.optString("id")));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+                lp.setMarginEnd(dp(8));
+                r.addView(t, lp);
+            }
+            hs.addView(r);
+            chBox.addView(hs);
+        }
+        JSONArray chs = d.optJSONArray("channels");
+        chBox.addView(section("Canales"));
+        if (!d.optBoolean("perm")) {
+            chBox.addView(empty("La TV todavía no deja ver sus canales. En la TV, en la tarjeta \"Prepara la TV\", toca \"Canales de TV\" y acepta."));
+            return;
+        }
+        if (chs == null || chs.length() == 0) {
+            chBox.addView(empty("La TV no tiene canales guardados. Búscalos primero en la app de TV de la TV (Canales / Live TV)."));
+            return;
+        }
+        long cur = d.optLong("cur", -1);
+        for (int i = 0; i < chs.length(); i++) {
+            JSONObject o = chs.optJSONObject(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(10), dp(8), dp(10), dp(8));
+            row.setBackground(o.optLong("id") == cur ? U.round(0x4400B894, dp(16)) : U.card(this, 16));
+            TextView num = U.text(this, o.optString("num"), 15, U.FG, true);
+            num.setGravity(Gravity.CENTER);
+            num.setBackground(U.round(0x33FFFFFF, dp(10)));
+            row.addView(num, new LinearLayout.LayoutParams(dp(56), dp(40)));
+            Bitmap lg = image("ch" + o.optLong("id"), o.optString("logo"));
+            if (lg != null) {
+                ImageView iv = new ImageView(this);
+                iv.setImageBitmap(lg);
+                iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                LinearLayout.LayoutParams ll = new LinearLayout.LayoutParams(dp(48), dp(32));
+                ll.setMarginStart(dp(10));
+                row.addView(iv, ll);
+            }
+            TextView nm = U.text(this, o.optString("name"), 15, U.FG, false);
+            nm.setPadding(dp(12), 0, 0, 0);
+            nm.setSingleLine(true);
+            nm.setEllipsize(TextUtils.TruncateAt.END);
+            row.addView(nm, new LinearLayout.LayoutParams(0, -2, 1));
+            row.setOnClickListener(v -> {
+                v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                remote.send("tune", "id", o.optLong("id"));
+                try { chData.put("cur", o.optLong("id")); } catch (Exception ignored) { }
+                chNow.setText(o.optString("num") + "  " + o.optString("name"));
+                renderChannels();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+            lp.topMargin = dp(6);
+            chBox.addView(row, lp);
+        }
+    }
+
+    private TextView empty(String s) {
+        TextView t = U.text(this, s, 14, U.MUTED, false);
+        t.setPadding(dp(8), dp(14), dp(8), dp(14));
+        return t;
     }
 
     private EditText field(String hintText) {
@@ -617,7 +750,9 @@ public class PhoneActivity extends Activity implements Remote.Listener {
     // ---------------- menú ⋯ ----------------
 
     private void menu() {
-        String[] opts = {"Preparar la TV (permisos)", "Actualizar este teléfono", "Actualizar la TV", "Conectar por dirección IP", "Acerca de"};
+        boolean auto = remote.tv.optBoolean("auto", true);
+        String[] opts = {"Preparar la TV (permisos)", "Actualizar este teléfono", "Actualizar la TV", "Conectar por dirección IP", "Acerca de",
+                "Abrir Chrono al prender la TV: " + (auto ? "sí" : "no")};
         new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                 .setItems(opts, (d, w) -> {
                     switch (w) {
@@ -629,7 +764,11 @@ public class PhoneActivity extends Activity implements Remote.Listener {
                             Toast.makeText(this, "La TV busca la actualización; confirma allá con su control", Toast.LENGTH_LONG).show();
                             break;
                         case 3: askIp(); break;
-                        default: about(); break;
+                        case 4: about(); break;
+                        default:
+                            remote.send("autostart", "on", !auto);
+                            Toast.makeText(this, !auto ? "Chrono se abrirá al prender la TV" : "Chrono ya no se abrirá solo", Toast.LENGTH_SHORT).show();
+                            break;
                     }
                 })
                 .show();
@@ -725,6 +864,14 @@ public class PhoneActivity extends Activity implements Remote.Listener {
                 if (!nowDragging && dur > 0) nowSeek.setProgress((int) (m.optLong("pos") * 1000 / dur));
                 break;
             }
+            case "channelList":
+                chData = m;
+                renderChannels();
+                break;
+            case "chanNow":
+                if (chNow != null) chNow.setText(m.optString("num") + "  " + m.optString("name"));
+                if (chData != null) { try { chData.put("cur", m.optLong("id")); } catch (Exception ignored) { } renderChannels(); }
+                break;
             case "toast": Toast.makeText(this, m.optString("msg"), Toast.LENGTH_LONG).show(); break;
             default: break;
         }

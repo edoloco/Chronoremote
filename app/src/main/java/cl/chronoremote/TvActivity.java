@@ -106,8 +106,14 @@ public class TvActivity extends Activity {
         tick.run();
         reload();   // pudo cambiar el permiso o instalarse una app
         if (TvService.instance != null) TvService.instance.stateChanged();
+        if (!Channels.allowed(this) && !getSharedPreferences("tv", MODE_PRIVATE).getBoolean("askedEpg", false)) {
+            getSharedPreferences("tv", MODE_PRIVATE).edit().putBoolean("askedEpg", true).apply();
+            requestPermissions(new String[]{Channels.PERM_TV}, 5);
+        }
         if (getIntent().getBooleanExtra("setup", false)) { getIntent().removeExtra("setup"); if (setupCard != null) setupCard.requestFocus(); }
     }
+
+    @Override public void onRequestPermissionsResult(int req, String[] p, int[] r) { reload(); }
 
     @Override protected void onNewIntent(Intent i) { super.onNewIntent(i); setIntent(i); }
 
@@ -158,7 +164,7 @@ public class TvActivity extends Activity {
             String keep = f != null && f.getTag() instanceof String ? (String) f.getTag() : null;
             content.removeAllViews();
             setupCard = null;
-            if (!android.provider.Settings.canDrawOverlays(this) || (!Updater.lite(this) && TvAccess.instance == null)) content.addView(setup());
+            if (!android.provider.Settings.canDrawOverlays(this) || !Channels.allowed(this) || (!Updater.lite(this) && TvAccess.instance == null)) content.addView(setup());
             List<ResolveInfo> all = TvService.tvApps(this);
             List<String> pins = TvService.pinList(this);
             List<ResolveInfo> pinned = new ArrayList<>();
@@ -185,6 +191,15 @@ public class TvActivity extends Activity {
                 }
                 row.addView(card(all.get(i), false));
             }
+            content.addView(title("Ajustes"));
+            LinearLayout opts = new LinearLayout(this);
+            opts.setPadding(0, dp(10), 0, 0);
+            opts.addView(button("Abrir al prender la TV: " + (TvService.autoStart(this) ? "sí" : "no"), () -> {
+                getSharedPreferences("tv", MODE_PRIVATE).edit().putBoolean("autostart", !TvService.autoStart(this)).apply();
+                if (TvService.instance != null) TvService.instance.stateChanged();
+                reload();
+            }));
+            content.addView(opts);
             if (keep != null) {
                 View v = content.findViewWithTag(keep);
                 if (v != null) v.requestFocus();
@@ -278,6 +293,8 @@ public class TvActivity extends Activity {
                 if (!openSettings(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)))
                     notice("No pude abrir ese ajuste en esta TV");
         }));
+        boolean ch = Channels.allowed(this);
+        btns.addView(button((ch ? "✓ " : "") + "Canales de TV", () -> requestPermissions(new String[]{Channels.PERM_TV}, 5)));
         if (!Updater.lite(this)) btns.addView(button((ac ? "✓ " : "2. ") + "Accesibilidad → Chrono Remote", () -> {
             if (!openSettings(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))) notice("No pude abrir Accesibilidad");
         }));
