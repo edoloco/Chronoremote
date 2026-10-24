@@ -39,6 +39,14 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="vnd.youtube" />
         </intent>
+        <!-- voz: buscar en la TV y en YouTube -->
+        <intent><action android:name="android.intent.action.SEARCH" /></intent>
+        <intent><action android:name="android.search.action.GLOBAL_SEARCH" /></intent>
+        <intent><action android:name="android.intent.action.WEB_SEARCH" /></intent>
+        <intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent>
+        <package android:name="com.google.android.youtube.tv" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.google.android.katniss" />
     </queries>
 
     <application

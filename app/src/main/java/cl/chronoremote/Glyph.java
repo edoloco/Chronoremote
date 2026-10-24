@@ -11,7 +11,7 @@ import android.view.View;
 public class Glyph extends View {
 
     static final int BACK = 0, HOME = 1, POWER = 2, VOL_DOWN = 3, VOL_UP = 4, MUTE = 5, PREV = 6, RW = 7, PLAY = 8, PAUSE = 9,
-            FF = 10, NEXT = 11, REMOTE = 12, APPS = 13, SEND = 14, MENU = 15, CLOSE = 16, IMAGE = 17, MUSIC = 18, LINK = 19, KEYBOARD = 20, TV = 21;
+            FF = 10, NEXT = 11, REMOTE = 12, APPS = 13, SEND = 14, MENU = 15, CLOSE = 16, IMAGE = 17, MUSIC = 18, LINK = 19, KEYBOARD = 20, TV = 21, MIC = 22;
 
     private int kind;
     private final int ink;
@@ -137,6 +137,12 @@ public class Glyph extends View {
                 c.drawRoundRect(new RectF(cx - u * 1.4f, cy - u * 0.85f, cx + u * 1.4f, cy + u * 0.85f), 3 * d, 3 * d, st);
                 for (int i = -2; i <= 2; i++) c.drawCircle(cx + i * u * 0.5f, cy - u * 0.3f, 1.3f * d, fill);
                 c.drawLine(cx - u * 0.7f, cy + u * 0.35f, cx + u * 0.7f, cy + u * 0.35f, st);
+                break;
+            case MIC:   // micrófono
+                c.drawRoundRect(new RectF(cx - u * 0.5f, cy - u * 1.35f, cx + u * 0.5f, cy + u * 0.35f), u * 0.5f, u * 0.5f, st);
+                c.drawArc(new RectF(cx - u * 0.95f, cy - u * 0.75f, cx + u * 0.95f, cy + u * 0.8f), 0, 180, false, st);
+                c.drawLine(cx, cy + u * 0.8f, cx, cy + u * 1.3f, st);
+                c.drawLine(cx - u * 0.5f, cy + u * 1.3f, cx + u * 0.5f, cy + u * 1.3f, st);
                 break;
             case TV:   // pantalla con antena
                 c.drawRoundRect(new RectF(cx - u * 1.35f, cy - u * 0.55f, cx + u * 1.35f, cy + u * 1.2f), 3 * d, 3 * d, st);

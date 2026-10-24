@@ -211,6 +211,7 @@ public class TvService extends Service implements TvServer.Handler {
                 break;
             }
             case "launch": launch(this, m.optString("pkg")); break;
+            case "voice": voiceSearch(this, m.optString("q"), m.optString("where")); break;
             case "uninstall": {
                 Intent i = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + m.optString("pkg"))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startUi(this, i);
@@ -346,6 +347,30 @@ public class TvService extends Service implements TvServer.Handler {
      */
     static boolean canStartFromBackground(Context c) {
         return TvActivity.visible || Settings.canDrawOverlays(c) || TvAccess.instance != null;
+    }
+
+    /** Orden de voz del teléfono: buscar en YouTube o en la TV (la búsqueda de Google TV / el Asistente). */
+    static void voiceSearch(Context c, String q, String where) {
+        if (q == null || q.trim().isEmpty()) return;
+        List<Intent> tries = new ArrayList<>();
+        if ("youtube".equals(where)) {
+            for (String yt : new String[]{"com.google.android.youtube.tv", "com.google.android.youtube.tvkids", "com.google.android.youtube"})
+                tries.add(new Intent(Intent.ACTION_SEARCH).setPackage(yt).putExtra(android.app.SearchManager.QUERY, q).putExtra("query", q));
+            tries.add(new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(q))));
+        }
+        // búsqueda de la TV: la de Google TV / Android TV (con el Asistente) o, si no, la del sistema
+        tries.add(new Intent("android.search.action.GLOBAL_SEARCH").putExtra(android.app.SearchManager.QUERY, q));
+        tries.add(new Intent(Intent.ACTION_SEARCH).setPackage("com.google.android.katniss").putExtra(android.app.SearchManager.QUERY, q));
+        tries.add(new Intent(Intent.ACTION_WEB_SEARCH).putExtra(android.app.SearchManager.QUERY, q));
+        PackageManager pm = c.getPackageManager();
+        for (Intent i : tries) {
+            if (i.resolveActivity(pm) == null) continue;
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startUi(c, i);
+            TvActivity.notice("🎤 " + q);
+            return;
+        }
+        if (instance != null) instance.broadcast(msg("toast", "msg", "La TV no tiene dónde buscar eso"));
     }
 
     static void launch(Context c, String pkg) {

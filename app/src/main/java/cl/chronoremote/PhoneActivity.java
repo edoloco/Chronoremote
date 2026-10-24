@@ -132,6 +132,75 @@ public class PhoneActivity extends Activity implements Remote.Listener, AtvRemot
         });
     }
 
+    // ---------------- voz: como el micrófono de los controles ----------------
+
+    private static final int REQ_VOICE = 77;
+
+    /** Escucha (con el reconocimiento de voz del teléfono) y manda la orden a la TV. */
+    private void listen() {
+        Intent i = new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "es-CL")
+                .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Dile algo a la TV: \"abre Netflix\", \"busca recetas en YouTube\", \"sube el volumen\"…");
+        try { startActivityForResult(i, REQ_VOICE); }
+        catch (Exception e) { Toast.makeText(this, "Este teléfono no tiene reconocimiento de voz (instala la app de Google)", Toast.LENGTH_LONG).show(); }
+    }
+
+    private static String norm(String s) {
+        String n = java.text.Normalizer.normalize(s.toLowerCase(java.util.Locale.ROOT), java.text.Normalizer.Form.NFD);
+        return n.replaceAll("\\p{M}", "").replaceAll("[¿?¡!.,]", "").trim();
+    }
+
+    /** Entiende la orden: abrir apps, volumen, reproducción, navegar; buscar en YouTube; si no, búsqueda de la TV. */
+    private void voice(String said) {
+        String s = norm(said);
+        Toast.makeText(this, "🎤 " + said, Toast.LENGTH_SHORT).show();
+        // controles directos
+        String[][] keys = {{"sube el volumen", "vup"}, {"subir volumen", "vup"}, {"mas volumen", "vup"}, {"baja el volumen", "vdown"},
+                {"bajar volumen", "vdown"}, {"menos volumen", "vdown"}, {"silencio", "mute"}, {"mute", "mute"}, {"pausa", "play"},
+                {"pausar", "play"}, {"continua", "play"}, {"reproduce", "play"}, {"play", "play"}, {"siguiente", "next"},
+                {"anterior", "prev"}, {"adelanta", "ff"}, {"retrocede", "rw"}, {"atras", "back"}, {"volver", "back"},
+                {"inicio", "home"}, {"apaga la tele", "sleep"}, {"apaga la tv", "sleep"}, {"apagar", "sleep"}};
+        for (String[] k : keys) if (s.equals(k[0]) || s.startsWith(k[0] + " ") && s.length() < k[0].length() + 12) {
+            int n = 1;
+            if (k[1].startsWith("v") && !k[1].equals("vup") || k[1].equals("vup")) n = s.contains("mucho") ? 5 : 2;
+            for (int i = 0; i < (k[1].equals("vup") || k[1].equals("vdown") ? n : 1); i++) nav(k[1]);
+            return;
+        }
+        // "busca X en youtube", "pon X en youtube", "youtube X"
+        java.util.regex.Matcher yt = java.util.regex.Pattern.compile("^(?:busca(?:r)?|pon(?:er)?|reproduce|ver)?\\s*(.+?)\\s+en\\s+youtube$").matcher(s);
+        if (yt.find()) { voiceSend(yt.group(1), "youtube"); return; }
+        if (s.startsWith("youtube ")) { voiceSend(s.substring(8), "youtube"); return; }
+        // "abre Netflix", "abrir Spotify", "pon Disney"
+        java.util.regex.Matcher op = java.util.regex.Pattern.compile("^(?:abre|abrir|abra|pon|pone|entra a|entrar a|ir a|anda a)\\s+(?:la app\\s+)?(?:de\\s+)?(.+)$").matcher(s);
+        if (op.find()) {
+            String want = op.group(1).trim();
+            JSONObject best = null;
+            for (int i = 0; i < apps.length(); i++) {
+                JSONObject a = apps.optJSONObject(i);
+                if (a == null) continue;
+                String l = norm(a.optString("label"));
+                if (l.equals(want)) { best = a; break; }
+                if (best == null && (l.contains(want) || want.contains(l))) best = a;
+            }
+            if (best != null) {
+                if (!remote.connected()) { Toast.makeText(this, "La TV no está conectada", Toast.LENGTH_SHORT).show(); return; }
+                remote.send("launch", "pkg", best.optString("pkg"));
+                Toast.makeText(this, "Abriendo " + best.optString("label"), Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+        // lo demás: se busca en la TV (películas, series, actores, preguntas…)
+        String q = said.replaceAll("^(?i)(busca(r)?|buscar|quiero ver|muestrame|muéstrame)\\s+", "");
+        voiceSend(q, "tv");
+    }
+
+    private void voiceSend(String q, String where) {
+        if (!remote.connected()) { Toast.makeText(this, "La TV no está conectada", Toast.LENGTH_SHORT).show(); return; }
+        remote.send("voice", "q", q, "where", where);
+        Toast.makeText(this, ("youtube".equals(where) ? "Buscando en YouTube: " : "Buscando en la TV: ") + q, Toast.LENGTH_SHORT).show();
+    }
+
     /** Teclas de Android para cada botón del control. */
     private static int keyOf(String k) {
         switch (k) {
@@ -305,6 +374,22 @@ public class PhoneActivity extends Activity implements Remote.Listener, AtvRemot
         addSpaced(r1, roundBtn(Glyph.HOME, "Inicio", 54, () -> nav("home")));
         addSpaced(r1, roundBtn(Glyph.POWER, "Apagar", 54, () -> nav("sleep")));
         c.addView(r1, new LinearLayout.LayoutParams(-1, -2));
+
+        // micrófono: hablarle a la TV, como los controles con micrófono
+        LinearLayout micRow = row();
+        micRow.setPadding(0, dp(12), 0, 0);
+        TextView micBtn = U.text(this, "  Hablarle a la TV", 17, U.FG, true);
+        micBtn.setGravity(Gravity.CENTER);
+        Glyph micG = new Glyph(this, Glyph.MIC, U.FG);
+        LinearLayout mic = new LinearLayout(this);
+        mic.setGravity(Gravity.CENTER);
+        mic.setPadding(dp(18), dp(12), dp(22), dp(12));
+        mic.setBackground(U.round(U.ORANGE, dp(28)));
+        mic.addView(micG, new LinearLayout.LayoutParams(dp(30), dp(30)));
+        mic.addView(micBtn);
+        mic.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); listen(); });
+        micRow.addView(mic, new LinearLayout.LayoutParams(-2, -2));
+        c.addView(micRow, new LinearLayout.LayoutParams(-1, -2));
 
         DPadView pad = new DPadView(this, this::nav);
         LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(dp(270), dp(270));
@@ -742,6 +827,12 @@ public class PhoneActivity extends Activity implements Remote.Listener, AtvRemot
 
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == REQ_VOICE) {
+            if (res != RESULT_OK || data == null) return;
+            java.util.ArrayList<String> r = data.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS);
+            if (r != null && !r.isEmpty()) voice(r.get(0));
+            return;
+        }
         if (res != RESULT_OK || data == null || data.getData() == null) return;
         sendFile(data.getData(), getContentResolver().getType(data.getData()));
     }
