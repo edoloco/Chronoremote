@@ -93,6 +93,7 @@ public class PhoneActivity extends Activity implements Remote.Listener, AtvRemot
     // ---------------- control total (protocolo de Android TV) ----------------
 
     private AtvRemote atv;
+    private long lastAtvTip;
 
     @Override public void onAtvState(boolean ok, String info) {
         if (hint != null) hint.setVisibility(ok ? View.GONE : View.VISIBLE);
@@ -513,6 +514,12 @@ public class PhoneActivity extends Activity implements Remote.Listener, AtvRemot
         // Inicio = la pantalla de Chrono (con la tecla Inicio aparecería primero el inicio de Google TV)
         if ("home".equals(k) && remote.connected()) { remote.send("nav", "k", "home"); return; }
         if (atvKey(k)) return;   // control total: funciona en cualquier app de la TV
+        // sin control total, en otras apps no llega nada: se avisa por qué y cómo arreglarlo
+        if (atv != null && !atv.ready() && System.currentTimeMillis() - lastAtvTip > 8000) {
+            lastAtvTip = System.currentTimeMillis();
+            String ip = remote.ip();
+            Toast.makeText(this, atv.paired(ip) ? "Control total: " + atv.info : "Para manejar otras apps de la TV toca \"Vincular con la TV\" (arriba)", Toast.LENGTH_LONG).show();
+        }
         if (!remote.connected()) { Toast.makeText(this, "La TV no está conectada", Toast.LENGTH_SHORT).show(); return; }
         remote.send("nav", "k", k);
     }
