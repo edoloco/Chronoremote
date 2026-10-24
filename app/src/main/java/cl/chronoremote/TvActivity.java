@@ -211,6 +211,7 @@ public class TvActivity extends Activity {
                 if (TvService.instance != null) TvService.instance.stateChanged();
                 reload();
             }));
+            opts.addView(button("Buscar actualización (" + Updater.installed(this) + ")", () -> { notice("Buscando actualización…"); Updater.update(this, null); }));
             opts.addView(button("Chrono como inicio de la TV: " + (TvService.replaceHome(this) ? "sí" : "no"), () -> {
                 getSharedPreferences("tv", MODE_PRIVATE).edit().putBoolean("replaceHome", !TvService.replaceHome(this)).apply();
                 reload();
@@ -320,6 +321,11 @@ public class TvActivity extends Activity {
             if (!openSettings(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + getPackageName()))))
                 if (!openSettings(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)))
                     notice("No pude abrir ese ajuste en esta TV");
+        }));
+        boolean inst = getPackageManager().canRequestPackageInstalls();
+        btns.addView(button((inst ? "✓ " : "") + "Instalar actualizaciones", () -> {
+            if (!openSettings(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()))))
+                if (!openSettings(new Intent(Settings.ACTION_SECURITY_SETTINGS))) notice("No pude abrir ese ajuste");
         }));
         boolean us = TvService.usageAccess(this);
         btns.addView(button((us ? "✓ " : "") + "Uso de apps (Chrono como inicio)", () -> {

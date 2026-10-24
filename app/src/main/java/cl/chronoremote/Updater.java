@@ -109,9 +109,21 @@ final class Updater {
         }, "actualizar").start();
     }
 
-    /** TV: la actualización la pidió un teléfono; se le cuenta cómo va. */
+    /** TV: la actualización la pidió un teléfono (o el botón de la TV); se cuenta cómo va en la TV y al teléfono. */
     static void update(Context c, TvServer.Peer peer) {
-        run(c, (msg, done) -> peer.send(TvService.msg("toast", "msg", "TV: " + msg)));
+        // sin el permiso "instalar apps desconocidas" Android no deja actualizar: se abre ese ajuste en la TV
+        if (!c.getPackageManager().canRequestPackageInstalls()) {
+            String m = "Falta permitir que Chrono Remote instale actualizaciones: en la TV se abrió el ajuste, actívalo y vuelve a intentar";
+            if (peer != null) peer.send(TvService.msg("toast", "msg", "TV: " + m));
+            TvActivity.notice(m);
+            TvService.startUi(c, new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    android.net.Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return;
+        }
+        run(c, (msg, done) -> {
+            if (peer != null) peer.send(TvService.msg("toast", "msg", "TV: " + msg));
+            TvActivity.notice(msg);
+        });
     }
 
     private static File download(Context c, String url) throws IOException {
@@ -164,7 +176,10 @@ final class Updater {
                 Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
                 if (confirm == null) return;
                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                if (U.isTv(c)) TvService.startUi(c, confirm);
+                if (U.isTv(c)) {
+                    TvService.startUi(c, confirm);
+                    TvActivity.notice("Confirma la actualización con el control de la TV");
+                }
                 else try { c.startActivity(confirm); } catch (Exception ignored) { }
             } else if (st != PackageInstaller.STATUS_SUCCESS) {
                 String msg = i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);

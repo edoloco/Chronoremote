@@ -102,6 +102,19 @@ public class ViewerActivity extends Activity {
     private final Runnable hideTitle = () -> title.animate().alpha(0f).setDuration(400).start();
 
     private Bitmap load(String url) {
+        if (url != null && url.startsWith("file:")) {   // recibido y guardado en la TV
+            try {
+                String p = Uri.parse(url).getPath();
+                BitmapFactory.Options o = new BitmapFactory.Options();
+                o.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(p, o);
+                int s = 1;
+                while (o.outWidth / s > 3840 || o.outHeight / s > 2160) s *= 2;
+                o = new BitmapFactory.Options();
+                o.inSampleSize = s;
+                return BitmapFactory.decodeFile(p, o);
+            } catch (Exception e) { return null; }
+        }
         try {
             HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
             c.setConnectTimeout(8000);

@@ -299,6 +299,12 @@ final class AtvRemote {
                     send(new Pb().msg(9, new Pb().num(1, v)).toBytes());
                     break;
                 }
+                case 22: { // remote_ime_show_request: la TV abrió su teclado (campo de texto activo)
+                    byte[] e = Pb.firstBytes(m, 22);
+                    byte[] st = e == null ? null : Pb.firstBytes(e, 2);
+                    if (st != null) { long fc = Pb.firstVarint(st, 1); if (fc >= 0) fieldCounter = (int) fc; if (imeCounter < 0) imeCounter = 0; }
+                    break;
+                }
                 case 21: { // remote_ime_batch_edit: contadores del campo de texto de la TV
                     byte[] e = Pb.firstBytes(m, 21);
                     if (e != null) { imeCounter = (int) Pb.firstVarint(e, 1); fieldCounter = (int) Pb.firstVarint(e, 2); }

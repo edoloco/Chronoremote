@@ -32,6 +32,8 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -134,15 +136,16 @@ public class PhoneActivity extends Activity implements Remote.Listener, AtvRemot
 
     // ---------------- voz: como el micrófono de los controles ----------------
 
-    private static final int REQ_VOICE = 77;
+    private static final int REQ_VOICE = 77, REQ_DICTATE = 78;
 
-    /** Escucha (con el reconocimiento de voz del teléfono) y manda la orden a la TV. */
-    private void listen() {
+    /** Escucha (con el reconocimiento de voz del teléfono): una orden (REQ_VOICE) o un texto para escribir (REQ_DICTATE). */
+    private void listen(int req) {
         Intent i = new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "es-CL")
-                .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Dile algo a la TV: \"abre Netflix\", \"busca recetas en YouTube\", \"sube el volumen\"…");
-        try { startActivityForResult(i, REQ_VOICE); }
+                .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, req == REQ_DICTATE ? "Dicta lo que quieres escribir en la TV"
+                        : "Dile algo a la TV: \"abre Netflix\", \"busca recetas en YouTube\", \"sube el volumen\"…");
+        try { startActivityForResult(i, req); }
         catch (Exception e) { Toast.makeText(this, "Este teléfono no tiene reconocimiento de voz (instala la app de Google)", Toast.LENGTH_LONG).show(); }
     }
 
@@ -155,6 +158,12 @@ public class PhoneActivity extends Activity implements Remote.Listener, AtvRemot
     private void voice(String said) {
         String s = norm(said);
         Toast.makeText(this, "🎤 " + said, Toast.LENGTH_SHORT).show();
+        // "escribe hola mundo": se escribe en el campo abierto en la TV (como un teclado)
+        if (s.startsWith("escribe ") || s.startsWith("escribir ")) {
+            textField.setText(said.substring(said.indexOf(' ') + 1));
+            sendText(false);
+            return;
+        }
         // controles directos
         String[][] keys = {{"sube el volumen", "vup"}, {"subir volumen", "vup"}, {"mas volumen", "vup"}, {"baja el volumen", "vdown"},
                 {"bajar volumen", "vdown"}, {"menos volumen", "vdown"}, {"silencio", "mute"}, {"mute", "mute"}, {"pausa", "play"},
@@ -387,7 +396,7 @@ public class PhoneActivity extends Activity implements Remote.Listener, AtvRemot
         mic.setBackground(U.round(U.ORANGE, dp(28)));
         mic.addView(micG, new LinearLayout.LayoutParams(dp(30), dp(30)));
         mic.addView(micBtn);
-        mic.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); listen(); });
+        mic.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); listen(REQ_VOICE); });
         micRow.addView(mic, new LinearLayout.LayoutParams(-2, -2));
         c.addView(micRow, new LinearLayout.LayoutParams(-1, -2));
 
@@ -451,6 +460,9 @@ public class PhoneActivity extends Activity implements Remote.Listener, AtvRemot
         textField.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         textField.setOnEditorActionListener((v, a, e) -> { sendText(true); return true; });
         tx.addView(textField, new LinearLayout.LayoutParams(0, dp(52), 1));
+        Glyph dict = new Glyph(this, Glyph.MIC, U.ORANGE);   // dictar: lo que digas se escribe en la TV
+        dict.setOnClickListener(v -> listen(REQ_DICTATE));
+        tx.addView(dict, new LinearLayout.LayoutParams(dp(48), dp(48)));
         Glyph go = new Glyph(this, Glyph.SEND, U.FG);
         go.setOnClickListener(v -> sendText(true));
         tx.addView(go, new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -827,27 +839,68 @@ public class PhoneActivity extends Activity implements Remote.Listener, AtvRemot
 
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
-        if (req == REQ_VOICE) {
+        if (req == REQ_VOICE || req == REQ_DICTATE) {
             if (res != RESULT_OK || data == null) return;
             java.util.ArrayList<String> r = data.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS);
-            if (r != null && !r.isEmpty()) voice(r.get(0));
+            if (r == null || r.isEmpty()) return;
+            if (req == REQ_DICTATE) { textField.setText(r.get(0)); sendText(false); }   // como método de entrada: se escribe en la TV
+            else voice(r.get(0));
             return;
         }
         if (res != RESULT_OK || data == null || data.getData() == null) return;
         sendFile(data.getData(), getContentResolver().getType(data.getData()));
     }
 
+    /**
+     * Manda el archivo a la TV EMPUJÁNDOLO por WiFi (puerto 47831): antes la TV tenía que entrar al teléfono a buscarlo
+     * y eso fallaba (permisos del archivo, redes que no dejan entrar al teléfono).
+     */
     private void sendFile(Uri uri, String mime) {
-        if (!remote.connected()) { Toast.makeText(this, "La TV no está conectada", Toast.LENGTH_SHORT).show(); return; }
-        String ip = remote.localIp();
-        if (ip == null) { Toast.makeText(this, "No sé la dirección de este teléfono en el WiFi", Toast.LENGTH_SHORT).show(); return; }
+        String ip = remote.ip();
+        if (ip == null || ip.isEmpty()) { Toast.makeText(this, "La TV no está conectada", Toast.LENGTH_SHORT).show(); return; }
         if (mime == null) mime = "application/octet-stream";
         String kind = mime.startsWith("image") ? "image" : mime.startsWith("audio") ? "audio" : mime.startsWith("video") ? "video" : null;
         if (kind == null) { Toast.makeText(this, "La TV solo muestra fotos, videos y música", Toast.LENGTH_SHORT).show(); return; }
-        String url = FileHttp.share(this, uri, mime, ip);
-        if (url == null) { Toast.makeText(this, "No pude preparar el archivo", Toast.LENGTH_SHORT).show(); return; }
-        remote.send("open", "url", url, "kind", kind, "title", nameOf(uri));
-        Toast.makeText(this, "Abriendo en la TV…", Toast.LENGTH_SHORT).show();
+        String name = nameOf(uri);
+        long size = -1;
+        try (android.os.ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "r")) { if (pfd != null) size = pfd.getStatSize(); }
+        catch (Exception ignored) { }
+        final long fsize = size;
+        final String fkind = kind;
+        Toast.makeText(this, "Mandando a la TV…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String err = null;
+            try (InputStream in = getContentResolver().openInputStream(uri); java.net.Socket s = new java.net.Socket()) {
+                if (in == null) throw new Exception("no pude abrir el archivo");
+                s.connect(new java.net.InetSocketAddress(ip, FileRecv.PORT), 5000);
+                s.setSoTimeout(60000);
+                OutputStream o = new java.io.BufferedOutputStream(s.getOutputStream(), 65536);
+                JSONObject h = new JSONObject();
+                h.put("kind", fkind); h.put("title", name); h.put("name", name.isEmpty() ? "archivo" : name); h.put("size", fsize);
+                o.write((h.toString() + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                byte[] buf = new byte[65536];
+                int n;
+                long sent = 0, lastNote = 0;
+                while ((n = in.read(buf)) > 0) {
+                    o.write(buf, 0, n);
+                    sent += n;
+                    if (fsize > 0 && sent - lastNote > fsize / 4 && fsize > 8_000_000) {
+                        lastNote = sent;
+                        final int pct = (int) (sent * 100 / fsize);
+                        runOnUiThread(() -> Toast.makeText(this, "Mandando a la TV: " + pct + "%", Toast.LENGTH_SHORT).show());
+                    }
+                }
+                o.flush();
+                s.shutdownOutput();
+                java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(s.getInputStream()));
+                String resp = r.readLine();
+                if (resp == null || !new JSONObject(resp).optBoolean("ok")) err = "la TV no lo recibió completo";
+            } catch (java.net.ConnectException e) {
+                err = "la TV no tiene la versión nueva de Chrono Remote (actualízala)";
+            } catch (Exception e) { err = e.getMessage() == null ? e.toString() : e.getMessage(); }
+            final String fe = err;
+            runOnUiThread(() -> Toast.makeText(this, fe == null ? "Listo: se abrió en la TV" : "No se pudo mandar: " + fe, Toast.LENGTH_LONG).show());
+        }, "mandar").start();
     }
 
     private String nameOf(Uri u) {

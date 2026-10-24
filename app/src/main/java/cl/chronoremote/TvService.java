@@ -69,6 +69,7 @@ public class TvService extends Service implements TvServer.Handler {
                 Service.class.getMethod("startForeground", int.class, Notification.class, int.class).invoke(this, 1, n, 16 /* CONNECTED_DEVICE */);
             else startForeground(1, n);
         } catch (Exception e) { try { startForeground(1, n); } catch (Exception ignored) { } }
+        FileRecv.start(this);   // fotos, videos y música que empujan los teléfonos
         if (server == null) {
             instance = this;
             server = new TvServer(this, this);
