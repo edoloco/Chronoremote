@@ -44,7 +44,7 @@ import java.util.regex.Pattern;
  * Teléfono: el control de la TV al estilo ChronOS. Abajo, la barra con tres secciones:
  * Control (cruceta, volumen, multimedia, escribir), Apps (las de la TV, para abrirlas) y Enviar (fotos, videos, música, enlaces).
  */
-public class PhoneActivity extends Activity implements Remote.Listener {
+public class PhoneActivity extends Activity implements Remote.Listener, AtvRemote.Listener {
 
     private Remote remote;
     private TextView status, nowTitle;
@@ -79,13 +79,74 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         build();
         remote.add(this);
         remote.start();
+        atv = AtvRemote.get(this);
+        atv.add(this);
+        atv.start(remote.ip());
         onState(remote.connected(), remote.info);
         handleShare(getIntent());
     }
 
     @Override protected void onNewIntent(Intent i) { super.onNewIntent(i); handleShare(i); }
 
-    @Override protected void onDestroy() { if (remote != null) remote.remove(this); super.onDestroy(); }
+    @Override protected void onDestroy() { if (remote != null) remote.remove(this); if (atv != null) atv.remove(this); super.onDestroy(); }
+
+    // ---------------- control total (protocolo de Android TV) ----------------
+
+    private AtvRemote atv;
+
+    @Override public void onAtvState(boolean ok, String info) {
+        if (hint != null) hint.setVisibility(ok ? View.GONE : View.VISIBLE);
+        if (status != null && remote.connected()) status.setText("Conectado a " + (remote.tvName.isEmpty() ? "la TV" : remote.tvName) + (ok ? " · control total" : ""));
+    }
+
+    /** Vincular: la TV muestra un código y aquí se escribe. */
+    private void pairFlow() {
+        String ip = remote.ip();
+        if (ip == null || ip.isEmpty()) { Toast.makeText(this, "Primero conecta la TV (o escribe su IP en el menú ⋯)", Toast.LENGTH_LONG).show(); return; }
+        AlertDialog wait = new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                .setTitle("Vinculando…").setMessage("Pidiéndole a la TV un código. Mira la pantalla de la TV.").setCancelable(false).show();
+        atv.startPairing(ip, err -> {
+            wait.dismiss();
+            if (err != null) {
+                new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert).setTitle("No se pudo vincular")
+                        .setMessage(err + "\n\nRevisa que la TV tenga Google TV o Android TV y que esté en el mismo WiFi.")
+                        .setPositiveButton("Entendido", null).show();
+                return;
+            }
+            EditText e = new EditText(this);
+            e.setHint("Código de 6 caracteres");
+            e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            e.setTextSize(24);
+            new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                    .setTitle("Código de la TV")
+                    .setMessage("Escribe el código que apareció en la TV.")
+                    .setView(e)
+                    .setPositiveButton("Vincular", (d, w) -> atv.finishPairing(e.getText().toString(), err2 -> {
+                        if (err2 == null) Toast.makeText(this, "Listo: control total de la TV", Toast.LENGTH_LONG).show();
+                        else new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert).setTitle("No se pudo vincular")
+                                .setMessage(err2).setPositiveButton("Probar de nuevo", (d2, w2) -> pairFlow()).setNegativeButton("Cancelar", null).show();
+                    }))
+                    .setNegativeButton("Cancelar", null)
+                    .show();
+        });
+    }
+
+    /** Teclas de Android para cada botón del control. */
+    private static int keyOf(String k) {
+        switch (k) {
+            case "up": return 19; case "down": return 20; case "left": return 21; case "right": return 22; case "ok": return 23;
+            case "back": return 4; case "home": return 3; case "sleep": return 26; case "menu": return 82;
+            case "play": return 85; case "next": return 87; case "prev": return 88; case "ff": return 90; case "rw": return 89;
+            case "vup": return 24; case "vdown": return 25; case "mute": return 164; case "chup": return 166; case "chdown": return 167;
+            default: return 0;
+        }
+    }
+
+    /** Manda la tecla por el control total; si no está vinculado, devuelve false (se usa el camino de antes). */
+    private boolean atvKey(String k) {
+        int c = keyOf(k);
+        return c != 0 && atv != null && atv.key(c);
+    }
 
     // ---------------- armado de la pantalla ----------------
 
@@ -226,12 +287,12 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         h.setOrientation(LinearLayout.VERTICAL);
         h.setPadding(dp(16), dp(12), dp(16), dp(12));
         h.setBackground(U.card(this, 18));
-        TextView ht = U.text(this, "Para usar Atrás, las flechas y escribir dentro de cualquier app de la TV, activa un permiso en la TV.", 13, U.FG, false);
+        TextView ht = U.text(this, "Control total: vincula este teléfono con la TV y maneja CUALQUIER app (YouTube, Netflix, ajustes…). Se hace una sola vez.", 13, U.FG, false);
         h.addView(ht);
-        TextView hb = U.text(this, "Preparar la TV  →", 14, U.ACCENT_SOFT, true);
+        TextView hb = U.text(this, "Vincular con la TV  →", 14, U.ACCENT_SOFT, true);
         hb.setPadding(0, dp(6), 0, 0);
         h.addView(hb);
-        h.setOnClickListener(v -> setupTv());
+        h.setOnClickListener(v -> pairFlow());
         h.setVisibility(View.GONE);
         hint = h;
         LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(-1, -2);
@@ -255,7 +316,7 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         vol.setBackground(U.card(this, 24));
         vol.setPadding(dp(8), dp(4), dp(8), dp(4));
         Glyph vd = new Glyph(this, Glyph.VOL_DOWN, U.FG);
-        vd.setOnClickListener(v -> remote.send("vol", "d", -1));
+        vd.setOnClickListener(v -> { if (!atvKey("vdown")) remote.send("vol", "d", -1); });
         vol.addView(vd, new LinearLayout.LayoutParams(dp(46), dp(46)));
         volBar = new SeekBar(this);
         volBar.setMax(100);
@@ -268,10 +329,10 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         });
         vol.addView(volBar, new LinearLayout.LayoutParams(0, -2, 1));
         Glyph vu = new Glyph(this, Glyph.VOL_UP, U.FG);
-        vu.setOnClickListener(v -> remote.send("vol", "d", 1));
+        vu.setOnClickListener(v -> { if (!atvKey("vup")) remote.send("vol", "d", 1); });
         vol.addView(vu, new LinearLayout.LayoutParams(dp(46), dp(46)));
         muteBtn = new Glyph(this, Glyph.MUTE, U.FG);
-        muteBtn.setOnClickListener(v -> remote.send("vol", "d", 0));
+        muteBtn.setOnClickListener(v -> { if (!atvKey("mute")) remote.send("vol", "d", 0); });
         vol.addView(muteBtn, new LinearLayout.LayoutParams(dp(46), dp(46)));
         c.addView(vol, new LinearLayout.LayoutParams(-1, -2));
 
@@ -282,16 +343,16 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         String[] k = {"prev", "rw", "play", "ff", "next"};
         for (int i = 0; i < g.length; i++) {
             final String key = k[i];
-            addSpaced(media, roundBtn(g[i], null, i == 2 ? 58 : 46, () -> remote.send("media", "k", key)));
+            addSpaced(media, roundBtn(g[i], null, i == 2 ? 58 : 46, () -> { if (!atvKey(key)) remote.send("media", "k", key); }));
         }
         c.addView(media, new LinearLayout.LayoutParams(-1, -2));
 
         // canales
         LinearLayout chr = row();
         chr.setPadding(0, dp(4), 0, dp(4));
-        addSpaced(chr, pill("Canal −", () -> remote.send("chan", "d", -1)));
+        addSpaced(chr, pill("Canal −", () -> { if (!atvKey("chdown")) remote.send("chan", "d", -1); }));
         addSpaced(chr, pill("Canales", () -> showPage(2)));
-        addSpaced(chr, pill("Canal +", () -> remote.send("chan", "d", 1)));
+        addSpaced(chr, pill("Canal +", () -> { if (!atvKey("chup")) remote.send("chan", "d", 1); }));
         c.addView(chr, new LinearLayout.LayoutParams(-1, -2));
 
         // escribir en la TV
@@ -449,6 +510,9 @@ public class PhoneActivity extends Activity implements Remote.Listener {
     }
 
     private void nav(String k) {
+        // Inicio = la pantalla de Chrono (con la tecla Inicio aparecería primero el inicio de Google TV)
+        if ("home".equals(k) && remote.connected()) { remote.send("nav", "k", "home"); return; }
+        if (atvKey(k)) return;   // control total: funciona en cualquier app de la TV
         if (!remote.connected()) { Toast.makeText(this, "La TV no está conectada", Toast.LENGTH_SHORT).show(); return; }
         remote.send("nav", "k", k);
     }
@@ -456,6 +520,11 @@ public class PhoneActivity extends Activity implements Remote.Listener {
     private void sendText(boolean enter) {
         String s = textField.getText().toString();
         if (s.isEmpty()) return;
+        if (atv != null && atv.text(s)) {   // control total: se escribe en el campo abierto de la TV
+            if (enter) atv.key(66);
+            textField.setText("");
+            return;
+        }
         remote.send("text", "s", s, "enter", enter);
         Toast.makeText(this, "Enviado a la TV", Toast.LENGTH_SHORT).show();
     }
@@ -751,11 +820,12 @@ public class PhoneActivity extends Activity implements Remote.Listener {
 
     private void menu() {
         boolean auto = remote.tv.optBoolean("auto", true);
-        String[] opts = {"Preparar la TV (permisos)", "Actualizar este teléfono", "Actualizar la TV", "Conectar por dirección IP", "Acerca de",
+        String[] opts = {"Vincular control total con la TV", "Preparar la TV (permisos)", "Actualizar este teléfono", "Actualizar la TV", "Conectar por dirección IP", "Acerca de",
                 "Abrir Chrono al prender la TV: " + (auto ? "sí" : "no")};
         new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                 .setItems(opts, (d, w) -> {
-                    switch (w) {
+                    switch (w - 1) {
+                        case -1: pairFlow(); break;
                         case 0: setupTv(); break;
                         case 1: Updater.run(this, (msg, done) -> runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show())); break;
                         case 2:
@@ -820,11 +890,13 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         dot.setBackground(g);
         status.setText(on ? "Conectado a " + (remote.tvName.isEmpty() ? "la TV" : remote.tvName) : info);
         if (on) {
+            atv.start(remote.ip());
+            onAtvState(atv.ready(), atv.info);
             remote.send("apps", "sig", appsSig);
             if (pendingShare != null) handleShare(pendingShare);
         } else {
             nowBar.setVisibility(View.GONE);
-            hint.setVisibility(View.GONE);
+            hint.setVisibility(atv != null && atv.ready() ? View.GONE : View.VISIBLE);
         }
     }
 
@@ -832,7 +904,7 @@ public class PhoneActivity extends Activity implements Remote.Listener {
         switch (m.optString("t")) {
             case "tv":
                 status.setText("Conectado a " + m.optString("name"));
-                hint.setVisibility(m.optBoolean("access") || m.optBoolean("lite") ? View.GONE : View.VISIBLE);
+                hint.setVisibility(atv.ready() ? View.GONE : View.VISIBLE);
                 break;
             case "appsList":
                 apps = m.optJSONArray("list") != null ? m.optJSONArray("list") : new JSONArray();

@@ -82,8 +82,73 @@ public class TvService extends Service implements TvServer.Handler {
             registerReceiver(screenOn, new android.content.IntentFilter(Intent.ACTION_SCREEN_ON));
         }
         if (i != null && i.getBooleanExtra("boot", false)) openOnPower(this);
+        main.removeCallbacks(homeGuard);
+        main.postDelayed(homeGuard, 1500);
         return START_STICKY;
     }
+
+    // ---------------- Chrono como inicio de la TV ----------------
+    // Google TV no deja elegir otro inicio desde sus ajustes: cuando aparece su inicio (botón Inicio del control,
+    // al salir de una app…), Chrono se pone encima al tiro. Se nota con "Uso de apps" o con la accesibilidad.
+
+    static final String[] STOCK_HOMES = {"com.google.android.apps.tv.launcherx", "com.google.android.tvlauncher",
+            "com.google.android.leanbacklauncher", "com.google.android.apps.tv.dreamx", "com.android.tv.launcher",
+            "com.mitv.tvhome", "com.mitv.tvhome.atv", "com.tcl.tvlauncher", "com.sony.dtv.launcher", "com.hisense.tvlauncher"};
+    /** Hasta cuándo se deja ver el inicio de Google TV (si se pidió a propósito). */
+    static volatile long stockAllowedUntil;
+
+    static boolean replaceHome(Context c) { return c.getSharedPreferences("tv", MODE_PRIVATE).getBoolean("replaceHome", true); }
+
+    static boolean isStockHome(String pkg) {
+        if (pkg == null) return false;
+        for (String s : STOCK_HOMES) if (pkg.equals(s)) return true;
+        return false;
+    }
+
+    /** Se mostró el inicio de la TV: Chrono pasa adelante (salvo que se haya pedido ver el de Google). */
+    static void onForeground(Context c, String pkg) {
+        if (!isStockHome(pkg) || !replaceHome(c) || TvActivity.visible || SystemClock.uptimeMillis() < stockAllowedUntil) return;
+        startUi(c, new Intent(c, TvActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                | Intent.FLAG_ACTIVITY_NO_ANIMATION));
+    }
+
+    static boolean usageAccess(Context c) {
+        try {
+            android.app.AppOpsManager ao = (android.app.AppOpsManager) c.getSystemService(APP_OPS_SERVICE);
+            return ao.checkOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), c.getPackageName())
+                    == android.app.AppOpsManager.MODE_ALLOWED;
+        } catch (Exception e) { return false; }
+    }
+
+    private String lastFront = "";
+
+    /** Revisa (con "Uso de apps") qué está al frente; con la accesibilidad no hace falta (avisa ella). */
+    private final Runnable homeGuard = new Runnable() {
+        @Override public void run() {
+            main.postDelayed(this, 700);
+            if (TvAccess.instance != null || !replaceHome(TvService.this) || !usageAccess(TvService.this)) return;
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            if (pm != null && !pm.isInteractive()) return;
+            worker.execute(() -> {
+                try {
+                    android.app.usage.UsageStatsManager us = (android.app.usage.UsageStatsManager) getSystemService(USAGE_STATS_SERVICE);
+                    long now = System.currentTimeMillis();
+                    android.app.usage.UsageEvents ev = us.queryEvents(now - 4000, now);
+                    android.app.usage.UsageEvents.Event e = new android.app.usage.UsageEvents.Event();
+                    String front = null;
+                    while (ev.hasNextEvent()) {
+                        ev.getNextEvent(e);
+                        if (e.getEventType() == android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND) front = e.getPackageName();
+                    }
+                    if (front != null) {
+                        lastFront = front;
+                        final String f = front;
+                        main.post(() -> onForeground(TvService.this, f));
+                    }
+                } catch (Exception ignored) { }
+            });
+        }
+    };
 
     private android.content.BroadcastReceiver screenOn;
 
@@ -346,9 +411,9 @@ public class TvService extends Service implements TvServer.Handler {
     // ---------------- navegación ----------------
 
     private void nav(TvServer.Peer p, String k) {
-        if ("home".equals(k)) {
+        if ("home".equals(k)) {   // Inicio = Chrono (no el inicio de Google TV)
+            stockAllowedUntil = 0;
             startUi(this, new Intent(this, TvActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
-            if (TvAccess.instance != null) TvAccess.instance.home();
             return;
         }
         // en la pantalla de Chrono Remote las flechas funcionan siempre (es nuestra)

@@ -26,7 +26,11 @@ public class TvAccess extends AccessibilityService {
         return super.onUnbind(i);
     }
 
-    @Override public void onAccessibilityEvent(AccessibilityEvent e) { }
+    @Override public void onAccessibilityEvent(AccessibilityEvent e) {
+        // se abrió el inicio de Google TV: Chrono pasa adelante (Chrono hace de inicio)
+        if (e != null && e.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && e.getPackageName() != null)
+            TvService.onForeground(this, e.getPackageName().toString());
+    }
     @Override public void onInterrupt() { }
 
     void home() { performGlobalAction(GLOBAL_ACTION_HOME); }

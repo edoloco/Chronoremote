@@ -60,6 +60,8 @@ final class Remote {
     void remove(Listener l) { listeners.remove(l); }
 
     boolean connected() { return sock != null; }
+    /** IP de la TV (la conectada o la última conocida). */
+    String ip() { Socket s = sock; return s != null && s.getInetAddress() != null ? s.getInetAddress().getHostAddress() : prefs.getString("lastIp", manualIp()); }
 
     void start() {
         if (started) return;
